@@ -1,0 +1,43 @@
+# ---------------------------------------------------------------------------
+# generator_config.yaml
+# ---------------------------------------------------------------------------
+# Controls volume + defect injection rates for the synthetic data generators.
+# Tune these to simulate "clean" baseline runs vs. "stressed" runs that the
+# DQ framework must catch.
+# ---------------------------------------------------------------------------
+
+seed: 42
+
+volumes:
+  customers: 5000
+  employees: 500
+  sales:     20000
+
+# Per-column defect probabilities (0.0 - 1.0)
+corruption:
+  customer:
+    null_email:        0.04
+    null_phone:        0.06
+    bad_email_format:  0.07
+    bad_phone_format:  0.10
+    bad_signup_date:   0.12
+    casing_drift:      0.05
+    whitespace_pad:    0.04
+    duplicate_rate:    0.02
+
+  employee:
+    null_manager_id:   0.08      # legitimate (top of hierarchy) + defects
+    bad_hire_date:     0.10
+    bad_email_format:  0.05
+    salary_out_of_range: 0.02
+    duplicate_rate:    0.01
+
+  sales:
+    null_customer_id:  0.03
+    orphan_customer:   0.04      # referential break
+    orphan_employee:   0.03
+    null_amount:       0.02
+    negative_amount:   0.02
+    extreme_amount:    0.01
+    bad_order_date:    0.10
+    duplicate_rate:    0.015

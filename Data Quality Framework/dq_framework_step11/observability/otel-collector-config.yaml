@@ -1,0 +1,73 @@
+# =====================================================================
+# OpenTelemetry Collector config :: deployed as a sidecar / DaemonSet
+# Receives OTLP/HTTP from the dq-runner pods, fan-outs to:
+#   * Prometheus  (metrics scraping endpoint :9464)
+#   * Tempo       (traces, OTLP/gRPC)
+#   * Datadog     (optional, switched via OTEL_EXPORTER_DATADOG_API_KEY)
+#   * Loki        (logs via loki exporter)
+# =====================================================================
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  attributes/redact:
+    actions:
+      - key: db.statement.parameters     # never ship bind values
+        action: delete
+      - key: http.request.header.authorization
+        action: delete
+  resource/env:
+    attributes:
+      - key: cluster
+        value: ${env:CLUSTER_NAME}
+        action: upsert
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:9464
+    namespace: dq
+    send_timestamps: true
+    metric_expiration: 5m
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls: { insecure: true }
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+  datadog:
+    api:
+      key: ${env:DD_API_KEY}
+      site: datadoghq.com
+
+extensions:
+  health_check: { endpoint: 0.0.0.0:13133 }
+  pprof:        { endpoint: 0.0.0.0:1777 }
+  zpages:       { endpoint: 0.0.0.0:55679 }
+
+service:
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [memory_limiter, attributes/redact, resource/env, batch]
+      exporters:  [otlp/tempo]
+    metrics:
+      receivers:  [otlp]
+      processors: [memory_limiter, resource/env, batch]
+      exporters:  [prometheus]
+    logs:
+      receivers:  [otlp]
+      processors: [memory_limiter, attributes/redact, resource/env, batch]
+      exporters:  [loki]

@@ -1,0 +1,6 @@
+faker>=24.0
+numpy>=1.26
+pyyaml>=6.0
+pandas>=2.1
+psycopg2-binary>=2.9
+sqlalchemy>=2.0

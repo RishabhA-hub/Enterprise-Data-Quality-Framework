@@ -1,0 +1,109 @@
+erDiagram
+    STG_CUSTOMER ||--o{ STG_SALES : "soft FK customer_id"
+    DIM_CUSTOMER ||--o{ FACT_SALES : customer_sk
+    DIM_EMPLOYEE ||..|| STG_EMPLOYEE : "cleansed from"
+    DIM_CUSTOMER ||..|| STG_CUSTOMER : "cleansed from"
+    FACT_SALES   ||..|| STG_SALES    : "cleansed from"
+
+    DQ_EXECUTION_LOG ||--o{ DQ_RULE_RESULTS : execution_id
+    DQ_EXECUTION_LOG ||--o{ DQ_QUALITY_SCORES : execution_id
+    DQ_EXECUTION_LOG ||--o{ ETL_VALIDATION_RESULTS : execution_id
+    DQ_RULES         ||--o{ DQ_RULE_RESULTS : rule_id
+
+    STG_CUSTOMER {
+      TEXT customer_id
+      TEXT name
+      TEXT email
+      TEXT phone
+      TEXT state
+      TEXT country
+      NUMERIC income
+      TEXT registration_date
+      BIGINT load_id
+    }
+    STG_SALES {
+      TEXT order_id
+      TEXT customer_id
+      TEXT product_id
+      TEXT order_date
+      NUMERIC revenue
+      TEXT region
+      TEXT category
+      BIGINT load_id
+    }
+    STG_EMPLOYEE {
+      TEXT employee_id
+      INTEGER age
+      TEXT department
+      NUMERIC salary
+      TEXT joining_date
+      TEXT attrition
+      TEXT location
+      BIGINT load_id
+    }
+
+    DIM_CUSTOMER {
+      BIGSERIAL customer_sk PK
+      TEXT customer_bk UK
+      TEXT name
+      TEXT email
+      TEXT state
+      DATE registration_date
+      BOOLEAN is_current
+    }
+    DIM_EMPLOYEE {
+      BIGSERIAL employee_sk PK
+      TEXT employee_bk UK
+      INTEGER age
+      TEXT department
+      NUMERIC salary
+      DATE joining_date
+    }
+    FACT_SALES {
+      BIGSERIAL sales_sk PK
+      TEXT order_bk UK
+      BIGINT customer_sk FK
+      DATE order_date
+      NUMERIC revenue
+    }
+
+    DQ_RULES {
+      TEXT rule_id PK
+      TEXT target_table
+      TEXT dimension
+      TEXT severity
+      TEXT rule_sql
+    }
+    DQ_EXECUTION_LOG {
+      BIGSERIAL execution_id PK
+      TEXT pipeline_name
+      TIMESTAMPTZ run_started_at
+      TEXT status
+    }
+    DQ_RULE_RESULTS {
+      BIGSERIAL result_id PK
+      BIGINT execution_id FK
+      TEXT rule_id FK
+      BIGINT records_checked
+      BIGINT records_failed
+      NUMERIC pass_rate_pct
+      TEXT status
+    }
+    DQ_QUALITY_SCORES {
+      BIGSERIAL score_id PK
+      BIGINT execution_id FK
+      TEXT target_table
+      TEXT dimension
+      NUMERIC dimension_score
+      NUMERIC weight_pct
+      NUMERIC weighted_score
+    }
+    ETL_VALIDATION_RESULTS {
+      BIGSERIAL validation_id PK
+      BIGINT execution_id FK
+      TEXT check_type
+      TEXT source_object
+      TEXT target_object
+      NUMERIC variance
+      TEXT status
+    }

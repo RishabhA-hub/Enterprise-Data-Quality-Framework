@@ -1,0 +1,15 @@
+flowchart LR
+    A([start]) --> B[extract_to_staging]
+    B --> C[profile_staging]
+    C --> D[run_dq_rules]
+    D --> E[etl_reconciliation]
+    D --> F[quarantine_bad_rows]
+    E --> G[publish_scorecard]
+    F --> G
+    G --> H[notify_stakeholders]
+    H --> Z([end])
+
+    classDef ok fill:#dff5e1,stroke:#2e7d32,color:#1b5e20;
+    classDef warn fill:#fff4d6,stroke:#b26a00,color:#5d3a00;
+    class B,C,D ok
+    class E,F,G,H warn

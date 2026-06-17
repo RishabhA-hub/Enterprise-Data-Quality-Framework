@@ -1,0 +1,134 @@
+name: dq-framework-ci
+
+# =====================================================================
+# CI pipeline for the Data Quality Framework.
+# Stages:
+#   1. lint      - sqlfluff (Postgres dialect) + shellcheck + ruff
+#   2. unit      - pytest against the rule_engine / etl_recon modules
+#   3. integration - spin up Postgres 16, apply all migrations in order,
+#                    run the end-to-end demo, assert scorecard KPIs
+#   4. security  - trivy fs scan + gitleaks secret scan
+#   5. publish   - build & push Docker image of the pipeline runner
+# =====================================================================
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  PG_VERSION: "16"
+
+jobs:
+  # -------------------------------------------------------------------
+  lint:
+    name: Lint (SQL + shell + python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - run: pip install sqlfluff==3.2.5 ruff==0.6.9
+      - name: sqlfluff lint
+        run: sqlfluff lint --dialect postgres sql/ || true   # warn-only on PR
+      - name: ruff lint
+        run: ruff check engine/ exporters/ alerting/
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with: { scandir: ./scripts }
+
+  # -------------------------------------------------------------------
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q --cov=engine --cov=exporters --cov-report=xml
+      - uses: codecov/codecov-action@v4
+        with: { files: coverage.xml, fail_ci_if_error: false }
+
+  # -------------------------------------------------------------------
+  integration:
+    name: End-to-end (Postgres ${{ env.PG_VERSION }})
+    runs-on: ubuntu-latest
+    needs: unit
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: dqci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: ci
+      PGDATABASE: dqci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - run: pip install -r requirements.txt
+      - name: Apply migrations
+        run: |
+          for f in sql/*.sql; do
+            echo "== Applying $f"; psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Run E2E demo
+        run: ./scripts/run_e2e_demo.sh
+      - name: Assert quality gates
+        run: python scripts/assert_kpis.py \
+                --min-pass-rate 0.85 --max-critical-fail 0
+
+  # -------------------------------------------------------------------
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with: { scan-type: fs, severity: HIGH,CRITICAL, exit-code: "1" }
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+
+  # -------------------------------------------------------------------
+  publish:
+    name: Build & push runner image
+    runs-on: ubuntu-latest
+    needs: [integration, security]
+    if: github.ref == 'refs/heads/main'
+    permissions: { contents: read, packages: write, id-token: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/dq-runner:latest
+            ghcr.io/${{ github.repository }}/dq-runner:${{ github.sha }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max

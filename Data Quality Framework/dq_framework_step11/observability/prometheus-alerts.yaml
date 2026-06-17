@@ -1,0 +1,47 @@
+# =====================================================================
+# Prometheus alerting rules for the DQ Framework
+# Loaded into Prometheus via rule_files: dq_alerts.yaml
+# =====================================================================
+groups:
+  - name: dq.pipeline.slo
+    interval: 30s
+    rules:
+
+      - alert: DQPipelineDurationHigh
+        expr: histogram_quantile(0.95, sum(rate(dq_rule_duration_ms_bucket[10m])) by (le)) > 600000
+        for: 15m
+        labels: { severity: warning, team: data-platform }
+        annotations:
+          summary: "DQ rule P95 duration > 10 min"
+          runbook: "https://wiki.acme.com/dq/runbooks/slow-rules"
+          description: "P95 rule duration is {{ $value | humanizeDuration }} over the last 10m."
+
+      - alert: DQCriticalRuleFailing
+        expr: sum(increase(dq_rules_executed{status="FAIL",severity="CRITICAL"}[5m])) > 0
+        for: 0m
+        labels: { severity: critical, team: data-platform, page: "true" }
+        annotations:
+          summary: "CRITICAL DQ rule failing in {{ $labels.domain }}"
+          runbook: "https://wiki.acme.com/dq/runbooks/critical-fail"
+
+      - alert: DQReconciliationGap
+        expr: sum(rate(dq_recon_gap_rows[15m])) > 1000
+        for: 15m
+        labels: { severity: high, team: data-engineering }
+        annotations:
+          summary: "ETL reconciliation gap > 1k rows / 15m"
+          description: "Source-to-target row delta exceeds threshold for {{ $labels.pair }}."
+
+      - alert: DQPipelineMissingHeartbeat
+        expr: absent_over_time(dq_rules_executed[30m]) == 1
+        for: 30m
+        labels: { severity: critical, team: data-platform, page: "true" }
+        annotations:
+          summary: "No DQ rule executions in 30 min — pipeline stalled"
+
+      - alert: DQSlaBreachSurge
+        expr: sum(increase(dq_sla_breaches[1h])) > 5
+        for: 5m
+        labels: { severity: high, team: data-stewards }
+        annotations:
+          summary: ">5 SLA breaches in the last hour"
